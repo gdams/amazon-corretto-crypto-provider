@@ -51,7 +51,8 @@ final class Loader {
   private static final String VERSION_PROPERTY_FILE = "version.properties";
   private static final String PROPERTY_VERSION_STR = "versionStr";
   private static final String PROPERTY_AWS_LC_VERSION_STR = "awsLcVersionStr";
-
+  
+  private static final String PROPERTY_CRYPTO_BACKEND = "cryptoBackend";
   private static final String PROPERTY_TMP_DIR = "tmpdir";
   private static final String[] JAR_RESOURCES = {JNI_LIBRARY_NAME};
   private static final Pattern TEST_FILENAME_PATTERN =
@@ -296,6 +297,15 @@ final class Loader {
   private static void tryLoadLibrary() throws Exception {
     // First, try to find the library in our own jar
     final boolean useExternalLib = Boolean.parseBoolean(getProperty("useExternalLib", "false"));
+    
+    // Set the cryptographic backend based on system property
+    final String cryptoBackend = getProperty(PROPERTY_CRYPTO_BACKEND, "AWS-LC");
+    // Set environment variable for the native code
+    AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
+      System.setProperty("ACCP_CRYPTO_PROVIDER", cryptoBackend);
+      return null;
+    });
+    
     boolean successfullyLoadedLibrary = false;
     Exception loadingException = null;
 
@@ -340,6 +350,11 @@ final class Loader {
   }
 
   private static native String getNativeLibraryVersion();
+  
+  /**
+   * Returns the name of the cryptographic provider backend being used (e.g., "AWS-LC" or "SymCrypt").
+   */
+  static native String getCryptoProviderBackend();
 
   /**
    * Validates that the LibCrypto available at runtime is the same as what was available at compile

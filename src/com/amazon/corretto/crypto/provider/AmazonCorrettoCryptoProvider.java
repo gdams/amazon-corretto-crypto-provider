@@ -742,6 +742,17 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
   }
 
   /**
+   * Returns the name of the underlying cryptographic provider backend in use.
+   * This can be "AWS-LC" for the default AWS LibCrypto backend or "SymCrypt" 
+   * for the Microsoft SymCrypt backend.
+   * 
+   * @return String representing the cryptographic backend provider name
+   */
+  public String getCryptoProviderBackend() {
+    return Loader.getCryptoProviderBackend();
+  }
+
+  /**
    * Register ACCP's EC-flavored AlgorithmParameters implementation
    *
    * <p>Most use-cases can and should rely on JCE-provided EC AlgorithmParameters implementation as

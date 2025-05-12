@@ -46,6 +46,9 @@ set(FIPS_SELF_TEST_SKIP_ABORT NO CACHE BOOL "Determines whether ACCP throws exce
 set(FIPS NO CACHE BOOL "Determine if this build is for FIPS mode")
 set(ALWAYS_ALLOW_EXTERNAL_LIB NO CACHE BOOL "Always permit tests to load ACCP shared objects from the library path")
 set(AWS_LC_VERSION_STRING "" CACHE STRING "Git version of AWS-LC used in this build")
+set(USE_SYMCRYPT NO CACHE BOOL "Enable support for Microsoft SymCrypt (SCOSSL) as a backend provider")
+set(SYMCRYPT_INCLUDE_DIR "" CACHE STRING "Path to SymCrypt/SCOSSL include directory")
+set(SYMCRYPT_LIBRARY_DIR "" CACHE STRING "Path to SymCrypt/SCOSSL library directory")
 
 if (EXPERIMENTAL_FIPS)
     set(FIPS ON)
@@ -288,6 +291,9 @@ set(C_SRC
     csrc/libcrypto_rng.cpp
     csrc/loader.cpp
     csrc/md5.cpp
+    csrc/provider_backend.cpp
+    csrc/awslc_backend.cpp
+    csrc/symcrypt_backend.cpp
     csrc/rsa_cipher.cpp
     csrc/rsa_gen.cpp
     csrc/sha1.cpp
@@ -310,6 +316,23 @@ else()
     set(TEST_FIPS_PROPERTY "-DFIPS=false")
 endif()
 
+# Setup SCOSSL (SymCrypt OpenSSL engine) backend support
+if(USE_SYMCRYPT)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_SYMCRYPT")
+    
+    # Add SymCrypt include and library directories if specified
+    if(SYMCRYPT_INCLUDE_DIR)
+        include_directories(${SYMCRYPT_INCLUDE_DIR})
+    endif()
+    
+    if(SYMCRYPT_LIBRARY_DIR)
+        link_directories(${SYMCRYPT_LIBRARY_DIR})
+    endif()
+    
+    # Add SymCrypt library to link
+    target_link_libraries(amazonCorrettoCryptoProvider symcrypt)
+endif()
+
 # The source files under this guard should be removed and added to all builds, including FIPS,
 # once the corresponding algorithms are added to a FIPS branch of AWS-LC consumable by ACCP.
 if(EXPERIMENTAL_FIPS OR (NOT FIPS))
@@ -317,6 +340,13 @@ if(EXPERIMENTAL_FIPS OR (NOT FIPS))
 endif()
 
 add_library(amazonCorrettoCryptoProvider SHARED ${C_SRC})
+
+# Build provider backend test
+add_executable(provider_backend_test csrc/provider_backend.cpp csrc/awslc_backend.cpp csrc/symcrypt_backend.cpp)
+target_link_libraries(provider_backend_test ${OPENSSL_CRYPTO_LIBRARY} Threads::Threads)
+if(USE_SYMCRYPT)
+    target_link_libraries(provider_backend_test symcrypt)
+endif()
 
 add_custom_command(
     OUTPUT ${ACCP_JAR_SOURCE}
@@ -334,6 +364,10 @@ if(ENABLE_NATIVE_TEST_HOOKS)
     # No need to link OpenSSL (AWS-LC)
     target_link_libraries(test_keyutils amazonCorrettoCryptoProvider)
 endif()
+
+# Backend provider tests
+add_executable(test_provider_backend EXCLUDE_FROM_ALL csrc/provider_backend_test.cpp)
+target_link_libraries(test_provider_backend amazonCorrettoCryptoProvider)
 
 #### Start of feature tests
 

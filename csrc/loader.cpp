@@ -3,6 +3,7 @@
 #include "env.h"
 #include "generated-headers.h"
 #include "util.h"
+#include "provider_backend.h"
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -26,14 +27,55 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
+// Global instance of the currently active provider backend
+std::shared_ptr<ProviderBackend> g_providerBackend;
+
 namespace {
 void initialize()
 {
-    CRYPTO_library_init();
-    ERR_load_crypto_strings();
-    OpenSSL_add_all_digests();
+    // Get provider backend from system property or environment variable if set,
+    // otherwise default to AWS-LC
+    const char* backend_name = getenv("ACCP_CRYPTO_PROVIDER");
+    
+    // Check Java system property which takes precedence over environment variable
+    JNIEnv* env;
+    if (vm->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_OK) {
+        jclass system_class = env->FindClass("java/lang/System");
+        if (system_class != NULL) {
+            jmethodID get_property_method = env->GetStaticMethodID(system_class, "getProperty", 
+                "(Ljava/lang/String;)Ljava/lang/String;");
+            if (get_property_method != NULL) {
+                jstring property_name = env->NewStringUTF("com.amazon.corretto.crypto.provider.cryptoBackend");
+                jstring property_value = (jstring)env->CallStaticObjectMethod(system_class, 
+                    get_property_method, property_name);
+                
+                if (property_value != NULL) {
+                    const char* value = env->GetStringUTFChars(property_value, NULL);
+                    if (value != NULL && strlen(value) > 0) {
+                        backend_name = value;
+                        // Note: We intentionally "leak" this string as it will be used 
+                        // throughout the application's lifetime
+                    }
+                    env->ReleaseStringUTFChars(property_value, value);
+                }
+                env->DeleteLocalRef(property_name);
+                if (property_value != NULL) {
+                    env->DeleteLocalRef(property_value);
+                }
+            }
+            env->DeleteLocalRef(system_class);
+        }
+    }
+    
+    if (!backend_name) {
+        backend_name = "AWS-LC"; // Default
+    }
+    
+    g_providerBackend = ProviderBackend::createBackend(backend_name);
+    if (g_providerBackend) {
+        g_providerBackend->initialize();
+    }
 }
-
 }
 
 jint JNI_OnLoad(JavaVM* vm, void* reserved)
@@ -42,9 +84,20 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved)
     return JNI_VERSION_1_4;
 }
 
+void JNI_OnUnload(JavaVM* vm, void* reserved)
+{
+    if (g_providerBackend) {
+        g_providerBackend->cleanup();
+        g_providerBackend.reset();
+    }
+}
+
 JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_Loader_isFipsMode(JNIEnv*, jclass)
 {
-    return FIPS_mode() == 1 ? JNI_TRUE : JNI_FALSE;
+    if (g_providerBackend) {
+        return g_providerBackend->isFipsMode() ? JNI_TRUE : JNI_FALSE;
+    }
+    return JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_Loader_isExperimentalFipsMode(JNIEnv*, jclass)
@@ -72,6 +125,22 @@ JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_Loader_getNat
         raii_env env(pEnv);
 
         return env->NewStringUTF(STRINGIFY(PROVIDER_VERSION_STRING));
+    } catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+        return NULL;
+    }
+}
+
+JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_Loader_getCryptoProviderBackend(JNIEnv* pEnv, jclass)
+{
+    try {
+        raii_env env(pEnv);
+        
+        if (g_providerBackend) {
+            return env->NewStringUTF(g_providerBackend->getProviderName().c_str());
+        } else {
+            return env->NewStringUTF("Unknown");
+        }
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
         return NULL;

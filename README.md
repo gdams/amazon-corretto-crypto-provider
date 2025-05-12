@@ -2,9 +2,28 @@
 The Amazon Corretto Crypto Provider (ACCP) is a collection of high-performance cryptographic implementations exposed via the standard [JCA/JCE](https://docs.oracle.com/en/java/javase/11/security/java-cryptography-architecture-jca-reference-guide.html) interfaces.
 This means that it can be used as a drop in replacement for many different Java applications.
 (Differences from the default OpenJDK implementations are [documented here](./DIFFERENCES.md).)
-As of 2.0.0, algorithms exposed by ACCP are primarily backed by [AWS-LC](https://github.com/awslabs/aws-lc)'s implementations.
+As of 2.0.0, algorithms exposed by ACCP are primarily backed by [AWS-LC](https://github.com/awslabs/aws-lc)'s implementations. ACCP now also supports SCOSSL (SymCrypt OpenSSL Engine) as an alternative backend provider.
 
 [Security issue notifications](./CONTRIBUTING.md#security-issue-notifications)
+
+## Cryptographic Backends
+
+ACCP supports multiple cryptographic backend providers:
+
+1. **AWS-LC** - The default provider, using Amazon's AWS LibCrypto implementation
+2. **SCOSSL** - The SymCrypt engine and provider for OpenSSL that allows the use of Microsoft's SymCrypt as the provider for core cryptographic operations
+
+To select a backend provider, set the system property:
+```java
+System.setProperty("com.amazon.corretto.crypto.provider.cryptoBackend", "SCOSSL");
+```
+
+Or, when running your application:
+```bash
+java -Dcom.amazon.corretto.crypto.provider.cryptoBackend=SCOSSL ...
+```
+
+The default is AWS-LC if no provider is specified.
 
 ## Build Status
 
